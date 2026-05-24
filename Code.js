@@ -26,13 +26,16 @@ function doPost(e) {
       const msg = line.trim();
       if (!msg) return;
 
-      if (msg.includes("สรุป") || msg.includes("เดือนหน้า") || msg.includes("มีไรบ้าง") || msg.includes("มีอะไรบ้าง") || msg.includes("นัด") || msg.includes("จ่าย")) {
+      // 1. เพิ่มการรองรับการพิมเช็ค "ตารางงาน" หรือ "มีงานไรบ้าง" ผ่านแชท
+      if (msg.includes("ตารางงาน") || msg.includes("มีงานไรบ้าง")) {
+        results.push(handleActiveNotification(ss));
+      }
+      else if (msg.includes("สรุป") || msg.includes("เดือนหน้า") || msg.includes("มีไรบ้าง") || msg.includes("มีอะไรบ้าง") || msg.includes("นัด") || msg.includes("จ่าย")) {
         results.push(handleSummary(msg, ss));
       }
       else if (msg.startsWith("ยกเลิก")) {
         results.push(handleCancel(msg, ss));
       }
-      // เพิ่มให้รองรับการตรวจจับวันในสัปดาห์
       else if (msg.match(/ทุก(วันที่|วัน)?\s*\d+/) || msg.includes("เดือน") || msg.includes("สิ้นเดือน") || msg.match(/ทุกวัน(จันทร์|อังคาร|พุธ|พฤหัส|ศุกร์|เสาร์|อาทิตย์)/)) {
         results.push(handlePaymentTask(msg, ss));
       }
@@ -74,7 +77,6 @@ function handleSummary(msg, ss) {
 
   let summary = `📊 สรุปรายการ [${targetMonth + 1}/${targetYear}]\n`;
 
-  // --- ส่วนนัดหมาย (เหมือนเดิมแต่เรียงเวลา) ---
   if (isShowGeneral) {
     const genData = ss.getSheetByName(CONFIG.SHEETS.GENERAL).getDataRange().getValues();
     let genList = [];
@@ -92,12 +94,11 @@ function handleSummary(msg, ss) {
     summary += `\n🗓️ นัดหมายทั่วไป:\n${genStrings.length > 0 ? genStrings.join('\n') : "- ไม่มีนัด"}\n`;
   }
 
-  // --- ส่วนชำระเงิน (เพิ่มยอดคงเหลือ) ---
   if (isShowPayment) {
     const payData = ss.getSheetByName(CONFIG.SHEETS.PAYMENTS).getDataRange().getValues();
     let payList = [];
     let totalYen = 0, totalBaht = 0;
-    let remYen = 0, remBaht = 0; // ยอดคงเหลือที่ต้องจ่าย
+    let remYen = 0, remBaht = 0;
 
     for (let i = 1; i < payData.length; i++) {
       const status = payData[i][5];
@@ -116,7 +117,6 @@ function handleSummary(msg, ss) {
           if (check.getMonth() !== targetMonth) break;
           if (check.getDay() === dayOfWeek) {
             if (symbol === "฿") totalBaht += amt; else totalYen += amt;
-            // คำนวณยอดที่เหลือ (ตั้งแต่วันนี้เป็นต้นไป)
             if (check >= todayNoTime) {
               if (symbol === "฿") remBaht += amt; else remYen += amt;
             }
@@ -133,7 +133,6 @@ function handleSummary(msg, ss) {
 
         if (d.getMonth() === targetMonth && d.getFullYear() === targetYear) {
           if (symbol === "฿") totalBaht += amt; else totalYen += amt;
-          // คำนวณยอดที่เหลือ (ตั้งแต่วันนี้เป็นต้นไป)
           if (d >= todayNoTime) {
             if (symbol === "฿") remBaht += amt; else remYen += amt;
           }
@@ -148,8 +147,8 @@ function handleSummary(msg, ss) {
     
     if (totalYen > 0 || totalBaht > 0) {
       summary += `\n💸 ยอดรวมทั้งหมด:`;
-      if (totalYen > 0) summary += `\n🇯🇵 เยน: ${totalYen.toLocaleString()} ￥ \n   └ เหลือจ่าย: ${remYen.toLocaleString()} ￥`;
-      if (totalBaht > 0) summary += `\n🇹🇭 บาท: ${totalBaht.toLocaleString()} ฿ \n   └ เหลือจ่าย: ${remBaht.toLocaleString()} ฿`;
+      if (totalYen > 0) summary += `\n🇯🇵 เยน: ${totalYen.toLocaleString()} ￥ \n    └ เหลือจ่าย: ${remYen.toLocaleString()} ￥`;
+      if (totalBaht > 0) summary += `\n🇹🇭 บาท: ${totalBaht.toLocaleString()} ฿ \n    └ เหลือจ่าย: ${remBaht.toLocaleString()} ฿`;
     }
   }
   return summary;
@@ -162,7 +161,6 @@ function handlePaymentTask(msg, ss) {
   const isEndOfMonth = msg.includes("สิ้นเดือน");
   const forceNextMonth = msg.includes("เริ่มเดือนหน้า");
   
-  // ตรวจจับวันในสัปดาห์
   const weekDayMatch = msg.match(/ทุกวัน(จันทร์|อังคาร|พุธ|พฤหัส|ศุกร์|เสาร์|อาทิตย์)/);
   const dayMap = {'อาทิตย์':0, 'จันทร์':1, 'อังคาร':2, 'พุธ':3, 'พฤหัส':4, 'ศุกร์':5, 'เสาร์':6};
   
@@ -191,7 +189,6 @@ function handlePaymentTask(msg, ss) {
     return `♾️ ${name} (ทุกวัน${weekDayMatch[1]}) [${amountWithSymbol}]`;
   }
 
-  // --- Logic เดิมสำหรับรายเดือน/สิ้นเดือน ---
   if (explicitDateMatch) {
     const parts = explicitDateMatch[0].split('/');
     if (parts.length === 3) { startYear = parseInt(parts[0]); startMonth = parseInt(parts[1]) - 1; startDay = parseInt(parts[2]); }
@@ -223,7 +220,6 @@ function handlePaymentTask(msg, ss) {
   }
 }
 
-// --- ฟังก์ชันช่วยเหลืออื่นๆ เหมือนเดิม ---
 function handleGeneralTask(msg, ss) {
   const sheet = ss.getSheetByName(CONFIG.SHEETS.GENERAL);
   const dateMatch = msg.match(/(\d{4}\/)?(\d{1,2})\/(\d{1,2})/);
@@ -267,10 +263,23 @@ function handleCancel(msg, ss) {
   return count > 0 ? `🚫 ยกเลิก [${targetName}] เรียบร้อย (${count})` : `🔍 หาชื่อ [${targetName}] ไม่พบครับ`;
 }
 
+// 2. ฟังก์ชันจำลองเปิดดูตารางงานภายใน 7 วันผ่านทางหน้าแชท LINE
+function handleActiveNotification(ss) {
+  const logs = getSortedNotifications(ss);
+  return logs.length > 0 ? logs.join("\n\n") : "🟢 ไม่มีตารางงานหรือรายจ่ายในอีก 7 วันข้างหน้าครับ";
+}
+
+// 3. ฟังก์ชันแจ้งเตือนอัตโนมัติรายวัน (Trigger ตอนเช้า)
 function checkAndNotify() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const logs = getSortedNotifications(ss);
+  if (logs.length > 0) sendPush(logs.join("\n\n"));
+}
+
+// 4. ฟังก์ชันรวมและคัดกรองข้อมูล พร้อมจัดลำดับตามความสำคัญของเวลา (0 วัน -> 1 วัน -> 7 วัน)
+function getSortedNotifications(ss) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  let logs = [];
+  let notificationList = []; // เก็บออบเจกต์ชั่วคราว [{ diff: จำนวนวัน, text: ข้อความ }]
   
   const paySheet = ss.getSheetByName(CONFIG.SHEETS.PAYMENTS);
   if (paySheet) {
@@ -293,8 +302,7 @@ function checkAndNotify() {
       } else {
         targetDate = savedDate;
       }
-      // ใส่ false ท้ายสุดเพราะไม่ใช่ General Task
-      processNotification(payData[i][1], payData[i][2], targetDate, today, logs, termInfo, false);
+      processNotificationToList(payData[i][1], payData[i][2], targetDate, today, notificationList, termInfo, false);
     }
   }
 
@@ -303,20 +311,27 @@ function checkAndNotify() {
     const genData = genSheet.getDataRange().getValues();
     for (let i = 1; i < genData.length; i++) {
       if (genData[i][4] !== "Pending") continue;
-      // ใส่ true ท้ายสุดเพราะเป็น General Task
-      processNotification(genData[i][1], null, new Date(genData[i][2]), today, logs, "", true);
+      processNotificationToList(genData[i][1], null, new Date(genData[i][2]), today, notificationList, "", true);
     }
   }
-  if (logs.length > 0) sendPush(logs.join("\n\n"));
+
+  // ทำการ Sort เรียงตามจำนวนวันจากน้อยไปมาก (วันนี้ -> พรุ่งนี้ -> วันถัดๆ ไป)
+  notificationList.sort((a, b) => a.diff - b.diff);
+
+  return notificationList.map(item => item.text);
 }
 
-function processNotification(name, amount, targetDate, today, logs, termInfo, isGeneral) {
+// 5. ปรับการประมวลผลข้อความแจ้งเตือนให้อยู่ในระยะ 0-7 วัน และเพิ่มข้อมูลใน Array
+function processNotificationToList(name, amount, targetDate, today, notificationList, termInfo, isGeneral) {
   const checkDate = new Date(targetDate);
   checkDate.setHours(0, 0, 0, 0);
   const diff = Math.ceil((checkDate - today) / (1000 * 60 * 60 * 24));
+  
+  // กรองให้แจ้งเตือนเฉพาะวันนี้ และช่วง 7 วันข้างหน้าตามเงื่อนไขเท่านั้น
+  if (diff < 0 || diff > 7) return;
+
   let displayName = name;
 
-  // 1. แสดงเวลาเฉพาะนัดหมายทั่วไป
   if (isGeneral) {
     const hh = String(targetDate.getHours()).padStart(2, '0');
     const mm = String(targetDate.getMinutes()).padStart(2, '0');
@@ -332,9 +347,12 @@ function processNotification(name, amount, targetDate, today, logs, termInfo, is
 
   if (termInfo) displayName += ` ${termInfo}`;
 
-  if (diff === 7) logs.push(`🔔 อีก 7 วัน: ${displayName.trim()}`);
-  else if (diff === 1) logs.push(`⚠️ พรุ่งนี้แล้ว!: ${displayName.trim()}`);
-  else if (diff === 0) logs.push(`🚨 วันนี้!!: ${displayName.trim()}`);
+  let finalTxt = "";
+  if (diff === 0) finalTxt = `🚨 วันนี้!!: ${displayName.trim()}`;
+  else if (diff === 1) finalTxt = `⚠️ พรุ่งนี้แล้ว!: ${displayName.trim()}`;
+  else finalTxt = `🔔 อีก ${diff} วัน: ${displayName.trim()}`;
+
+  notificationList.push({ diff: diff, text: finalTxt });
 }
 
 function replyLine(token, text) { callLineAPI("reply", { "replyToken": token, "messages": [{ "type": "text", "text": text }] }); }
